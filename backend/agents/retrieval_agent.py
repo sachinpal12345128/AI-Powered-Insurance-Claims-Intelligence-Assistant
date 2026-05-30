@@ -1,12 +1,13 @@
 import logging
 from backend.agents.state import ClaimsState
 from backend.retrieval.hybrid_search import hybrid_search
+from backend.retrieval.compressor import compress_chunks
 
 logger = logging.getLogger(__name__)
 
 
 def retrieval_agent(state: ClaimsState) -> ClaimsState:
-    """Hybrid search + reranking → populate retrieved_claims."""
+    """Hybrid search + reranking + contextual compression → populate retrieved_claims."""
     query = state["query"]
     filters = state.get("filters") or {}
 
@@ -14,6 +15,10 @@ def retrieval_agent(state: ClaimsState) -> ClaimsState:
 
     try:
         results = hybrid_search(query=query, n_retrieve=20, top_k=5, filters=filters or None)
+
+        # Contextual compression: trim each chunk to query-relevant excerpt
+        results = compress_chunks(query, results)
+
         claim_ids = [r.get("metadata", {}).get("claim_id", r["id"]) for r in results]
 
         return {

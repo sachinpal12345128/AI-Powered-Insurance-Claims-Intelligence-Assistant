@@ -14,7 +14,6 @@ async def analytics():
         col = client.get_collection(settings.chroma_collection)
         results = col.get(limit=5000, include=["metadatas"])
         df = pd.DataFrame(results["metadatas"])
-
         fraud_count = int(df["fraud_label"].astype(int).sum()) if "fraud_label" in df.columns else 0
         total = len(df)
         by_region = (
@@ -34,14 +33,23 @@ async def analytics():
             "by_region": by_region,
             "by_policy_type": by_policy,
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        return {
+            "total_claims": 0, "fraud_count": 0, "fraud_rate": 0.0,
+            "by_region": {}, "by_policy_type": {},
+            "message": "No data ingested yet. Run ingestion first.",
+        }
 
 
 @router.get("/claim/{claim_id}")
 async def get_claim(claim_id: str):
-    from backend.retrieval.vector_store import get_claim_by_id
-    claim = get_claim_by_id(claim_id)
-    if not claim:
-        raise HTTPException(status_code=404, detail=f"Claim {claim_id} not found")
-    return claim
+    try:
+        from backend.retrieval.vector_store import get_claim_by_id
+        claim = get_claim_by_id(claim_id)
+        if not claim:
+            raise HTTPException(status_code=404, detail=f"Claim {claim_id} not found")
+        return claim
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail=f"Claim {claim_id} not found (store not ready)")

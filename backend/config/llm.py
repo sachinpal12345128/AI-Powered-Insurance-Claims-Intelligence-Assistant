@@ -1,13 +1,9 @@
 """
 LLM + Embedding client factory with fallback chain.
-Primary: OpenAI gateway → Fallback 1: Groq → Fallback 2: HuggingFace
+Primary: OpenAI gateway -> Fallback 1: Groq -> Fallback 2: HuggingFace
 """
 import logging
-from functools import lru_cache
-
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-
 from backend.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -68,7 +64,10 @@ def get_primary_embeddings() -> OpenAIEmbeddings:
 
 
 def get_local_embeddings():
-    from langchain_community.embeddings import HuggingFaceEmbeddings
+    try:
+        from langchain_huggingface import HuggingFaceEmbeddings
+    except ImportError:
+        from langchain_community.embeddings import HuggingFaceEmbeddings
     return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
 
@@ -76,7 +75,6 @@ def get_embeddings_with_fallback():
     """Returns embedding model; falls back to local sentence-transformers."""
     try:
         emb = get_primary_embeddings()
-        # Probe with a short string to verify connectivity
         emb.embed_query("test")
         logger.info("Using OpenAI embeddings via org gateway.")
         return emb, "openai"
