@@ -33,7 +33,7 @@ async function call(client, method, url, body) {
 }
 
 export const queryAPI        = (query, filters) => call(api,      'post', '/query',         { query, filters })
-export const ingestAPI       = (csv_path)       => call(apiQuick, 'post', '/ingest',        { csv_path })
+export const ingestAPI       = (csv_path)       => call(api,      'post', '/ingest',        { csv_path })
 export const ingestStatusAPI = ()               => call(apiQuick, 'get',  '/ingest/status')
 export const getClaimAPI     = (id)             => call(apiQuick, 'get',  `/claim/${id}`)
 export const analyticsAPI    = ()               => call(apiQuick, 'get',  '/analytics')

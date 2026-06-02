@@ -1,3 +1,40 @@
+import ssl
+import urllib3
+import urllib3.util.ssl_
+
+# Disable SSL certificate verification globally — corporate proxy with self-signed cert.
+ssl._create_default_https_context = ssl._create_unverified_context
+
+# Patch ssl.create_default_context (used by langchain_openai and others)
+_orig_cdc = ssl.create_default_context
+def _patched_cdc(*args, **kwargs):
+    ctx = _orig_cdc(*args, **kwargs)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+ssl.create_default_context = _patched_cdc
+
+# Patch urllib3's SSL context factory (used by Pinecone's internal HTTP pool)
+def _urllib3_no_verify(*args, **kwargs):
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+urllib3.util.ssl_.create_urllib3_context = _urllib3_no_verify
+try:
+    import urllib3.connection
+    urllib3.connection.create_urllib3_context = _urllib3_no_verify
+except Exception:
+    pass
+try:
+    import urllib3.connectionpool
+    urllib3.connectionpool.create_urllib3_context = _urllib3_no_verify
+except Exception:
+    pass
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 import logging
 import os
 from fastapi import FastAPI

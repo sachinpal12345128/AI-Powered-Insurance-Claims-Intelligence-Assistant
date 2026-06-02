@@ -13,9 +13,5 @@ def resolve(path_str: str) -> str:
     return str(p)
 
 
-def chroma_dir() -> str:
-    return resolve(get_settings().chroma_persist_dir)
-
-
 def bm25_path() -> str:
     return resolve(get_settings().bm25_index_path)

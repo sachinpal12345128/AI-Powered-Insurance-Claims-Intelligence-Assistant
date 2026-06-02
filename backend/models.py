@@ -44,7 +44,7 @@ class IngestResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
-    chroma_ok: bool
+    pinecone_ok: bool
     bm25_ok: bool
     llm_model: str
     cache_size: int

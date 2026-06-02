@@ -1,31 +1,51 @@
 import pandas as pd
+from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from backend.config.settings import get_settings
-from backend.config.paths import chroma_dir
 
 router = APIRouter()
 settings = get_settings()
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+CSV_PATH = PROJECT_ROOT / "data" / "source_data" / "fraud_oracle.csv"
+
+
+def _load_df():
+    if not CSV_PATH.exists():
+        return None
+    df = pd.read_csv(CSV_PATH)
+    # Normalise column names to lowercase
+    df.columns = [c.lower().strip() for c in df.columns]
+    return df
 
 
 @router.get("/analytics")
 async def analytics():
     try:
-        import chromadb
-        client = chromadb.PersistentClient(path=chroma_dir())
-        col = client.get_collection(settings.chroma_collection)
-        results = col.get(limit=5000, include=["metadatas"])
-        df = pd.DataFrame(results["metadatas"])
-        fraud_count = int(df["fraud_label"].astype(int).sum()) if "fraud_label" in df.columns else 0
+        df = _load_df()
+        if df is None or df.empty:
+            return {
+                "total_claims": 0, "fraud_count": 0, "fraud_rate": 0.0,
+                "by_region": {}, "by_policy_type": {},
+                "message": "No data found. Check data/raw/fraud_oracle.csv.",
+            }
+
+        fraud_col = next((c for c in df.columns if "fraud" in c), None)
+        region_col = next((c for c in df.columns if "region" in c or "area" in c), None)
+        policy_col = next((c for c in df.columns if "policy" in c and "type" in c), None)
+
+        fraud_count = int(df[fraud_col].astype(int).sum()) if fraud_col else 0
         total = len(df)
+
         by_region = (
-            df.groupby("customer_region")["fraud_label"]
+            df.groupby(region_col)[fraud_col]
             .apply(lambda x: int(x.astype(int).sum())).to_dict()
-            if "customer_region" in df.columns else {}
+            if region_col and fraud_col else {}
         )
         by_policy = (
-            df.groupby("policy_type")["fraud_label"]
+            df.groupby(policy_col)[fraud_col]
             .apply(lambda x: int(x.astype(int).sum())).to_dict()
-            if "policy_type" in df.columns else {}
+            if policy_col and fraud_col else {}
         )
         return {
             "total_claims": total,
@@ -34,11 +54,11 @@ async def analytics():
             "by_region": by_region,
             "by_policy_type": by_policy,
         }
-    except Exception:
+    except Exception as e:
         return {
             "total_claims": 0, "fraud_count": 0, "fraud_rate": 0.0,
             "by_region": {}, "by_policy_type": {},
-            "message": "No data ingested yet. Run ingestion first.",
+            "message": f"Analytics error: {e}",
         }
 
 

@@ -35,9 +35,11 @@ class Settings(BaseSettings):
     # Embeddings
     fastembed_model: str = Field("BAAI/bge-small-en-v1.5", alias="FASTEMBED_MODEL")
 
-    # Vector store
-    chroma_persist_dir: str = Field("./data/chroma_db", alias="CHROMA_PERSIST_DIR")
-    chroma_collection: str = Field("insurance_claims", alias="CHROMA_COLLECTION")
+    # Vector store — Pinecone
+    pinecone_api_key: str = Field("", alias="PINECONE_API_KEY")
+    pinecone_index_name: str = Field("insurance-claims", alias="PINECONE_INDEX_NAME")
+    pinecone_cloud: str = Field("aws", alias="PINECONE_CLOUD")
+    pinecone_region: str = Field("us-east-1", alias="PINECONE_REGION")
 
     # BM25
     bm25_index_path: str = Field("./data/bm25_index/bm25.pkl", alias="BM25_INDEX_PATH")

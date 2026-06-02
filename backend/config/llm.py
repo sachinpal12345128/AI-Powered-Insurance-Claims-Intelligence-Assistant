@@ -18,7 +18,7 @@ settings = get_settings()
 _openai_client = None
 _fastembed_model = None
 
-EMBED_DIM = 1536  # matches text-embedding-3-small
+EMBED_DIM = 1536  # text-embedding-3-small full dimension (gateway ignores Matryoshka truncation)
 
 # ── LLM ───────────────────────────────────────────────────────────────────────
 
