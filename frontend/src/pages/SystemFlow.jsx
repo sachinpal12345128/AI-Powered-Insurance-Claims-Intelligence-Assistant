@@ -5,7 +5,7 @@ const DETAILS = {
   pandas: 'Pandas preprocessing: column renaming, incident_date synthesis from Month+Year, row-to-text conversion for embedding.',
   chunk: 'RecursiveCharacterTextSplitter: chunk_size=512, overlap=64. Each claim row → structured text block → split into chunks with metadata inherited.',
   embed: 'OpenAI text-embedding-3-small (1536-dim) via org gateway. Fallback → sentence-transformers all-MiniLM-L6-v2 (local, 384-dim, free). Model name stored as metadata.',
-  chroma: 'ChromaDB local persistent store. Collection: insurance_claims. Cosine similarity space. Supports metadata filtering on policy_type, region, fraud_label.',
+  chroma: 'Pinecone serverless vector store (AWS us-east-1). Index: insurance-claims. Cosine similarity. Supports metadata filtering on policy_type, region, fraud_label. 1536-dim OpenAI embeddings.',
   bm25: 'BM25Okapi (rank_bm25) keyword index over full claim texts. Serialized to disk. Loaded once at startup.',
   user: 'Claims analyst enters natural language query from React UI (e.g. "show fraud claims with no police report in urban areas").',
   fastapi: 'FastAPI async REST endpoints: POST /query, POST /ingest, GET /claim/{id}, GET /analytics, GET /health. Auto OpenAPI docs at /docs.',
@@ -49,7 +49,7 @@ export default function SystemFlow() {
           <Arr /><Node id="pandas" label="⚙ Pandas" sublabel="Preprocess" cls="flow-box-gray" onClick={click} />
           <Arr /><Node id="chunk" label="✂ Chunking" sublabel="512 tok · RC splitter" cls="flow-box-blue" onClick={click} />
           <Arr /><Node id="embed" label="🔢 Embedding" sublabel="text-embed-3-small" cls="flow-box-blue" onClick={click} />
-          <Arr /><Node id="chroma" label="🗄 ChromaDB" sublabel="Vector store" cls="flow-box-green" onClick={click} />
+          <Arr /><Node id="chroma" label="🗄 Pinecone" sublabel="Vector store" cls="flow-box-green" onClick={click} />
           <Plus /><Node id="bm25" label="🔍 BM25 Index" sublabel="rank_bm25" cls="flow-box-green" onClick={click} />
         </div>
         <div className="flow-fallback">
@@ -91,7 +91,7 @@ export default function SystemFlow() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 10 }}>
             {[
-              { id: 'ret_agent', icon: '🗃', label: 'Retrieval agent', desc: 'ChromaDB + BM25 → hybrid → CrossEncoder rerank' },
+              { id: 'ret_agent', icon: '🗃', label: 'Retrieval agent', desc: 'Pinecone + BM25 → hybrid → CrossEncoder rerank' },
               { id: 'fraud_agent', icon: '🚨', label: 'Fraud analysis agent', desc: 'Signal detection · risk scoring · A2A escalation' },
               { id: 'policy_agent', icon: '📋', label: 'Policy validation', desc: 'Compliance check · violation detection' },
               { id: 'rec_agent', icon: '💡', label: 'Recommendation agent', desc: 'Investigation guidance · explainable output' },

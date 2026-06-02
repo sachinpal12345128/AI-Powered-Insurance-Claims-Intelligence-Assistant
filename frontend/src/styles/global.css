@@ -35,7 +35,37 @@ body {
 }
 
 /* Layout */
-.app-shell { display: flex; height: 100vh; overflow: hidden; }
+.root-shell { display: flex; flex-direction: column; height: 100vh; }
+.app-shell { display: flex; flex: 1; overflow: hidden; }
+
+/* Global header */
+.global-header {
+  flex-shrink: 0;
+  background: var(--surface);
+  border-left: 4px solid #2563eb;
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.global-header-inner {
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+}
+.global-header-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+}
+.global-header-sub {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+  letter-spacing: 0.01em;
+}
 .sidebar {
   width: 220px; flex-shrink: 0;
   background: var(--surface);

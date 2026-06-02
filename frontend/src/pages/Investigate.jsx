@@ -127,6 +127,33 @@ export default function Investigate() {
                 {result.escalated ? 'Escalated to senior review' : result.fraud_cluster !== 'none' ? `Cluster: ${result.fraud_cluster}` : ''}
               </div>
             </div>
+            {result.eval_scores && Object.keys(result.eval_scores).length > 0 && (
+              <div className="card mb-3">
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>DeepEval Scores</div>
+                {Object.entries(result.eval_scores).map(([metric, score]) => (
+                  <div key={metric} style={{ marginBottom: 9 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                      <span style={{ fontSize: 11, color: 'var(--text2)' }}>
+                        {metric.replace(/Metric$/i, '').trim()}
+                      </span>
+                      <span style={{ fontSize: 11, fontWeight: 700,
+                        color: score >= 0.7 ? 'var(--green)' : score >= 0.5 ? 'var(--orange)' : 'var(--red)' }}>
+                        {score.toFixed(2)}
+                      </span>
+                    </div>
+                    <div style={{ height: 5, background: 'var(--surface2)', borderRadius: 3 }}>
+                      <div style={{
+                        height: '100%', borderRadius: 3,
+                        width: `${Math.min(score * 100, 100)}%`,
+                        background: score >= 0.7 ? 'var(--green)' : score >= 0.5 ? 'var(--orange)' : 'var(--red)',
+                        transition: 'width 0.5s ease',
+                      }} />
+                    </div>
+                  </div>
+                ))}
+                <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>Powered by DeepEval</div>
+              </div>
+            )}
             {result.model_used && (
               <div style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'center' }}>
                 via {result.model_used}

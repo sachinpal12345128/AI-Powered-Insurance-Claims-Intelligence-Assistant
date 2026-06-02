@@ -22,11 +22,20 @@ const PAGE_TITLES = {
 
 export default function Layout({ children }) {
   const { pathname } = useLocation()
-  const title = Object.entries(PAGE_TITLES).find(([k]) => pathname.startsWith(k) && k !== '/') ?
-    Object.entries(PAGE_TITLES).find(([k]) => pathname.startsWith(k))[1] :
+  const title = PAGE_TITLES[pathname] ||
+    Object.entries(PAGE_TITLES).find(([k]) => k !== '/' && pathname.startsWith(k))?.[1] ||
     PAGE_TITLES['/']
 
   return (
+    <div className="root-shell">
+      <header className="global-header">
+        <div className="global-header-inner">
+          <div>
+            <div className="global-header-title">AI-Powered Insurance Claims Intelligence Assistant</div>
+            <div className="global-header-sub">Insurance Operations · Fraud Intelligence</div>
+          </div>
+        </div>
+      </header>
     <div className="app-shell">
       <aside className="sidebar">
         <div className="sidebar-logo">
@@ -57,7 +66,7 @@ export default function Layout({ children }) {
 
         <div className="sidebar-bottom">
           <div style={{ fontSize: 12, color: 'var(--text2)' }}><span className="model-dot" />GPT-4o-mini</div>
-          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3 }}>ChromaDB · LangGraph</div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3 }}>Pinecone · LangGraph</div>
         </div>
       </aside>
 
@@ -69,6 +78,7 @@ export default function Layout({ children }) {
         </header>
         <main className="page-content">{children}</main>
       </div>
+    </div>
     </div>
   )
 }

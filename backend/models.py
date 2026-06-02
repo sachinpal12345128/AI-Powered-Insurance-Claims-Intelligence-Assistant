@@ -26,6 +26,7 @@ class QueryResponse(BaseModel):
     escalated: bool = False
     cache_hit: bool = False
     guardrail_violations: list = []
+    eval_scores: dict = {}
     error: Optional[str] = None
 
     class Config:

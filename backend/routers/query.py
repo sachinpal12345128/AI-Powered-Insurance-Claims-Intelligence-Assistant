@@ -126,5 +126,26 @@ async def query(req: QueryRequest):
     result["guardrail_violations"] = guard.violations + out_guard.issues
     result["cache_hit"] = False
 
+    # 5. DeepEval inline scoring
+    eval_scores = {}
+    try:
+        from backend.evaluation.evaluator import EvalSample, run_evaluation
+        retrieval_context = [
+            c.get("text", "") for c in result.get("matched_claims", []) if c.get("text")
+        ]
+        if retrieval_context and result.get("answer"):
+            sample = EvalSample(
+                query=sanitized,
+                actual_output=result["answer"],
+                expected_output=sanitized,
+                retrieval_context=retrieval_context,
+            )
+            eval_results = await asyncio.to_thread(run_evaluation, [sample])
+            eval_scores = {r.metric: round(r.score, 3) for r in eval_results}
+            logger.info(f"[eval] scores: {eval_scores}")
+    except Exception as eval_err:
+        logger.warning(f"[eval] DeepEval skipped: {eval_err}")
+
+    result["eval_scores"] = eval_scores
     cache.set(sanitized, result)
     return QueryResponse(**result)
