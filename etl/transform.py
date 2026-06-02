@@ -1,7 +1,6 @@
 """Transform — preprocess rows into text blocks and chunk them."""
 import pandas as pd
 import logging
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from backend.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -66,19 +65,35 @@ def preprocess(df: pd.DataFrame) -> tuple[list[str], list[dict], list[str]]:
 
 # ── Chunking ──────────────────────────────────────────────────────────────────
 
+def _split_text(text: str, chunk_size: int, overlap: int) -> list[str]:
+    """Lightweight recursive splitter — no torch / langchain_text_splitters dependency."""
+    if len(text) <= chunk_size:
+        return [text]
+    seps = [". ", ", ", " "]
+    chunks, start, n = [], 0, len(text)
+    while start < n:
+        end = min(start + chunk_size, n)
+        if end < n:
+            for sep in seps:
+                idx = text.rfind(sep, start, end)
+                if idx > start:
+                    end = idx + len(sep)
+                    break
+        chunks.append(text[start:end])
+        start = max(end - overlap, start + 1)
+        if end >= n:
+            break
+    return chunks
+
+
 def chunk_texts(
     texts: list[str],
     metadatas: list[dict],
     ids: list[str],
 ) -> tuple[list[str], list[dict], list[str]]:
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=settings.chunk_size,
-        chunk_overlap=settings.chunk_overlap,
-        separators=[". ", ", ", " ", ""],
-    )
     chunked_texts, chunked_metas, chunked_ids = [], [], []
     for text, meta, doc_id in zip(texts, metadatas, ids):
-        chunks = splitter.split_text(text)
+        chunks = _split_text(text, settings.chunk_size, settings.chunk_overlap)
         for i, chunk in enumerate(chunks):
             chunked_texts.append(chunk)
             chunked_metas.append({**meta, "chunk_index": i, "parent_id": doc_id})

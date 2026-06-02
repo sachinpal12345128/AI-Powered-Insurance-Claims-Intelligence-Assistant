@@ -14,6 +14,12 @@ def _get_index():
     return _index_cache
 
 
+def invalidate_bm25_cache() -> None:
+    """Force re-load of the BM25 pickle on next search. Call after ETL re-ingest."""
+    global _index_cache
+    _index_cache = None
+
+
 def bm25_search(query: str, n_results: int = 10) -> list[dict]:
     """Returns top-n results by BM25 score."""
     idx = _get_index()

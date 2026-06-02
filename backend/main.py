@@ -18,7 +18,7 @@ if settings.langchain_tracing_v2 == "true" and settings.langchain_api_key:
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
 )
 
 app = FastAPI(
@@ -47,4 +47,12 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("backend.main:app", host=settings.app_host, port=settings.app_port, reload=True)
+    # Only watch source code dirs. Without reload_dirs, every Chroma/BM25
+    # write under ./data triggers a restart and breaks in-flight requests.
+    uvicorn.run(
+        "backend.main:app",
+        host=settings.app_host,
+        port=settings.app_port,
+        reload=True,
+        reload_dirs=["backend", "etl"],
+    )

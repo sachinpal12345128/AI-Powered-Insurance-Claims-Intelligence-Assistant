@@ -1,0 +1,8 @@
+# Ignore environment variables
+.env
+
+# Ignore secrets
+secrets.json
+
+# Ignore datasets
+data/source_data/*

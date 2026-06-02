@@ -1,6 +1,7 @@
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 from backend.config.settings import get_settings
+from backend.config.paths import chroma_dir
 
 router = APIRouter()
 settings = get_settings()
@@ -10,7 +11,7 @@ settings = get_settings()
 async def analytics():
     try:
         import chromadb
-        client = chromadb.PersistentClient(path=settings.chroma_persist_dir)
+        client = chromadb.PersistentClient(path=chroma_dir())
         col = client.get_collection(settings.chroma_collection)
         results = col.get(limit=5000, include=["metadatas"])
         df = pd.DataFrame(results["metadatas"])

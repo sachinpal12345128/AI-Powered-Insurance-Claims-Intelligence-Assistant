@@ -12,21 +12,24 @@ class IngestRequest(BaseModel):
 
 
 class QueryResponse(BaseModel):
-    query: str
-    answer: str
-    risk_score: float
-    fraud_signals: list
-    fraud_cluster: str
-    policy_violations: list
-    policy_compliance: str
-    recommendations: list
-    matched_claims: list
-    matched_claim_ids: list
-    model_used: str
-    escalated: bool
+    query: str = ""
+    answer: str = ""
+    risk_score: Optional[float] = None
+    fraud_signals: list = []
+    fraud_cluster: str = "none"
+    policy_violations: list = []
+    policy_compliance: str = "compliant"
+    recommendations: list = []
+    matched_claims: list = []
+    matched_claim_ids: list = []
+    model_used: str = "openai"
+    escalated: bool = False
     cache_hit: bool = False
     guardrail_violations: list = []
     error: Optional[str] = None
+
+    class Config:
+        extra = "ignore"
 
 
 class IngestResponse(BaseModel):

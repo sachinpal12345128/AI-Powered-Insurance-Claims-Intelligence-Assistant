@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Zap, SlidersHorizontal } from 'lucide-react'
+import { Search, Zap } from 'lucide-react'
 import { queryAPI } from '../api'
+import usePersistedState from '../hooks/usePersistedState'
 
 const CHIPS = [
   'Multiple claims same vehicle',
@@ -13,15 +14,15 @@ const CHIPS = [
 
 const riskBadge = (score) => {
   if (score >= 0.75) return <span className="badge badge-red">Risk {score?.toFixed(2)}</span>
-  if (score >= 0.5) return <span className="badge badge-orange">Risk {score?.toFixed(2)}</span>
+  if (score >= 0.5)  return <span className="badge badge-orange">Risk {score?.toFixed(2)}</span>
   return <span className="badge badge-green">Risk {score?.toFixed(2)}</span>
 }
 
 export default function Investigate() {
-  const [query, setQuery] = useState('')
+  const [query, setQuery]   = usePersistedState('inv.query', '')
+  const [result, setResult] = usePersistedState('inv.result', null)
+  const [error, setError]   = usePersistedState('inv.error', '')
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState(null)
-  const [error, setError] = useState('')
   const navigate = useNavigate()
 
   const submit = async (q = query) => {
@@ -31,7 +32,7 @@ export default function Investigate() {
       const data = await queryAPI(q)
       setResult(data)
     } catch (e) {
-      setError(e.response?.data?.detail || 'Query failed. Is the backend running?')
+      setError(e.message || 'Query failed. Is the backend running?')
     } finally {
       setLoading(false)
     }
@@ -39,7 +40,6 @@ export default function Investigate() {
 
   return (
     <div>
-      {/* Query box */}
       <div className="card mb-4">
         <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 8 }}>Ask about insurance claims in natural language</div>
         <div className="input-row mb-3">
@@ -51,7 +51,7 @@ export default function Investigate() {
           />
           <button className="btn btn-primary" onClick={() => submit()} disabled={loading} style={{ whiteSpace: 'nowrap' }}>
             {loading ? <span className="spinner" /> : <Search size={14} />}
-            {loading ? 'Analysing…' : 'Analyse'}
+            {loading ? 'Analysing...' : 'Analyse'}
           </button>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -68,14 +68,12 @@ export default function Investigate() {
 
       {result && (
         <div style={{ display: 'flex', gap: 14 }}>
-          {/* Results list */}
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 10 }}>
-              {result.matched_claims?.length || 0} results · hybrid search · reranked
+              {result.matched_claims?.length || 0} results - hybrid search - reranked
               {result.cache_hit && <span className="badge badge-green" style={{ marginLeft: 8 }}><Zap size={10} /> cache hit</span>}
             </div>
 
-            {/* Answer summary */}
             <div style={{ background: 'var(--blue-bg)', borderLeft: '3px solid var(--blue)', borderRadius: 8, padding: '12px 14px', marginBottom: 14, fontSize: 12, lineHeight: 1.6 }}>
               <div style={{ fontWeight: 600, marginBottom: 4, color: 'var(--blue-text)' }}>AI Summary</div>
               {result.answer}
@@ -86,16 +84,14 @@ export default function Investigate() {
               const risk = result.risk_score
               return (
                 <div key={i} onClick={() => navigate(`/claim/${meta.claim_id || claim.id}`)}
-                  style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '13px 16px', marginBottom: 10, cursor: 'pointer', transition: 'border-color 0.15s' }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border2)'}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
+                  style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '13px 16px', marginBottom: 10, cursor: 'pointer' }}>
                   <div className="flex items-center justify-between mb-3">
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--blue-text)' }}>{meta.claim_id || claim.id} · {meta.policy_type || ''}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--blue-text)' }}>{meta.claim_id || claim.id} - {meta.policy_type || ''}</span>
                     <span style={{ fontSize: 11, color: 'var(--text3)' }}>score {(claim.rerank_score ?? claim.score ?? 0).toFixed(3)}</span>
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5, marginBottom: 8 }}>{claim.text?.slice(0, 220)}…</div>
+                  <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5, marginBottom: 8 }}>{claim.text?.slice(0, 220)}...</div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {i === 0 && riskBadge(risk)}
+                    {i === 0 && risk != null && riskBadge(risk)}
                     {meta.customer_region && <span className="badge badge-gray">{meta.customer_region}</span>}
                     {meta.agent_type && <span className="badge badge-gray">{meta.agent_type} agent</span>}
                     {meta.police_report_filed === 'No' && <span className="badge badge-orange">No police report</span>}
@@ -106,7 +102,6 @@ export default function Investigate() {
             })}
           </div>
 
-          {/* Side panel */}
           <div style={{ width: 210, flexShrink: 0 }}>
             <div className="card mb-3">
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 10 }}>Fraud signals</div>
@@ -123,19 +118,19 @@ export default function Investigate() {
             <div className="card mb-3">
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Overall risk</div>
               <div style={{ fontSize: 28, fontWeight: 700, color: result.risk_score >= 0.75 ? 'var(--red)' : result.risk_score >= 0.5 ? 'var(--orange)' : 'var(--green)' }}>
-                {result.risk_score?.toFixed(2)}
+                {result.risk_score != null ? result.risk_score.toFixed(2) : 'n/a'}
               </div>
               <div className="risk-bar">
                 <div className={result.risk_score >= 0.75 ? 'risk-fill-high' : result.risk_score >= 0.5 ? 'risk-fill-med' : 'risk-fill-low'} style={{ width: `${(result.risk_score || 0) * 100}%` }} />
               </div>
               <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 6 }}>
-                {result.escalated ? '⚡ Escalated to senior review' : result.fraud_cluster !== 'none' ? `Cluster: ${result.fraud_cluster}` : ''}
+                {result.escalated ? 'Escalated to senior review' : result.fraud_cluster !== 'none' ? `Cluster: ${result.fraud_cluster}` : ''}
               </div>
             </div>
             {result.model_used && (
               <div style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'center' }}>
                 via {result.model_used}
-                {result.cache_hit && ' · cached'}
+                {result.cache_hit && ' - cached'}
               </div>
             )}
           </div>

@@ -2,12 +2,18 @@
 ContextualCompression: extracts only the relevant snippet from each retrieved chunk.
 Implements LangChain's contextual compression pattern using the project LLM directly.
 Falls back to returning original chunks unchanged on any error.
+
+Disabled by default (env: ENABLE_CONTEXTUAL_COMPRESSION=false) — running an LLM
+call per chunk is the single biggest source of query latency. Enable only when
+context bloat is hurting answer quality.
 """
 import logging
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from backend.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 _COMPRESS_PROMPT = ChatPromptTemplate.from_messages([
     ("system", (
@@ -27,6 +33,10 @@ def compress_chunks(query: str, chunks: list[dict]) -> list[dict]:
     Falls back to originals if the LLM is unavailable.
     """
     if not chunks:
+        return chunks
+
+    if not settings.enable_contextual_compression:
+        logger.debug("[compressor] disabled via ENABLE_CONTEXTUAL_COMPRESSION; returning raw chunks.")
         return chunks
 
     try:

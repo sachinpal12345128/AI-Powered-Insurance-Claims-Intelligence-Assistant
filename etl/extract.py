@@ -1,6 +1,7 @@
-"""Extract — load raw CSV and apply column mapping."""
+"""Extract - load raw CSV and apply column mapping."""
 import pandas as pd
 import logging
+import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,23 @@ def extract(path: str) -> pd.DataFrame:
 
     df = pd.read_csv(path, encoding="utf-8-sig")
     logger.info(f"Loaded {len(df)} rows, {len(df.columns)} columns from {p.name}")
+
+    # Optional sampling - set INGEST_SAMPLE_N=1000 in .env to limit rows.
+    # Useful on slow disks where ChromaDB persistence dominates ETL time.
+    sample_n = os.getenv("INGEST_SAMPLE_N", "").strip()
+    if sample_n.isdigit():
+        n = int(sample_n)
+        if 0 < n < len(df):
+            # Stratify on fraud label so we keep both classes in the sample.
+            if "FraudFound_P" in df.columns:
+                fraud = df[df["FraudFound_P"] == 1]
+                clean = df[df["FraudFound_P"] == 0]
+                fraud_n = min(len(fraud), max(1, n * len(fraud) // len(df)))
+                clean_n = max(1, n - fraud_n)
+                df = pd.concat([clean.head(clean_n), fraud.head(fraud_n)]).reset_index(drop=True)
+            else:
+                df = df.head(n)
+            logger.info(f"INGEST_SAMPLE_N={n} -> using {len(df)} rows (stratified by fraud label)")
 
     df = df.rename(columns={k: v for k, v in COLUMN_MAP.items() if k in df.columns})
 

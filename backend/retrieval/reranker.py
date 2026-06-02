@@ -1,46 +1,43 @@
 """
-Reranker with fallback:
-Primary  — Cohere Rerank API
-Fallback — sentence-transformers CrossEncoder (local)
+Reranker — cosine similarity (primary, no torch required) + Cohere (optional).
+Pattern adopted from AI-Powered-Smart-Grid-Energy-Intelligence-Assistant reference project.
 """
+from __future__ import annotations
+
+import math
 import logging
+from typing import Any, Dict, List, Optional
+
 from backend.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-_cross_encoder = None
+
+def _cosine(a: List[float], b: List[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    mag_a = math.sqrt(sum(x * x for x in a))
+    mag_b = math.sqrt(sum(x * x for x in b))
+    if mag_a == 0 or mag_b == 0:
+        return 0.0
+    return dot / (mag_a * mag_b)
 
 
-def _get_cross_encoder():
-    global _cross_encoder
-    if _cross_encoder is None:
-        from sentence_transformers import CrossEncoder
-        _cross_encoder = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
-        logger.info("CrossEncoder loaded.")
-    return _cross_encoder
+def _cosine_rerank(query: str, candidates: List[Dict[str, Any]], top_k: int) -> List[Dict[str, Any]]:
+    """Rerank using cosine similarity between query embedding and doc embeddings."""
+    from backend.config.llm import embed_query as _embed_query
+    q_emb = _embed_query(query)
+    for doc in candidates:
+        doc_emb = doc.get("embedding")
+        if doc_emb:
+            doc["rerank_score"] = _cosine(q_emb, doc_emb)
+        else:
+            # Fall back to existing hybrid/semantic score
+            doc["rerank_score"] = float(doc.get("hybrid_score", doc.get("score", 0.0)))
+    return sorted(candidates, key=lambda d: d["rerank_score"], reverse=True)[:top_k]
 
 
-def rerank(query: str, candidates: list[dict], top_k: int = 5) -> list[dict]:
-    """
-    Rerank candidates using Cohere (primary) or CrossEncoder (fallback).
-    Each candidate must have 'text' key.
-    Returns top_k candidates with updated 'rerank_score'.
-    """
-    if not candidates:
-        return []
-
-    # Try Cohere first
-    if settings.cohere_api_key:
-        try:
-            return _cohere_rerank(query, candidates, top_k)
-        except Exception as e:
-            logger.warning(f"Cohere rerank failed ({e}). Falling back to CrossEncoder.")
-
-    return _crossencoder_rerank(query, candidates, top_k)
-
-
-def _cohere_rerank(query: str, candidates: list[dict], top_k: int) -> list[dict]:
+def _cohere_rerank(query: str, candidates: List[Dict[str, Any]], top_k: int) -> List[Dict[str, Any]]:
     import cohere
     co = cohere.Client(settings.cohere_api_key)
     docs = [c["text"] for c in candidates]
@@ -53,15 +50,40 @@ def _cohere_rerank(query: str, candidates: list[dict], top_k: int) -> list[dict]
     return reranked
 
 
-def _crossencoder_rerank(query: str, candidates: list[dict], top_k: int) -> list[dict]:
-    model = _get_cross_encoder()
-    pairs = [(query, c["text"]) for c in candidates]
-    scores = model.predict(pairs)
-    scored = [(s, c) for s, c in zip(scores, candidates)]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    results = []
-    for score, item in scored[:top_k]:
-        c = item.copy()
-        c["rerank_score"] = round(float(score), 4)
-        results.append(c)
-    return results
+def _passthrough(candidates: List[Dict[str, Any]], top_k: int) -> List[Dict[str, Any]]:
+    """Sort by existing score, set rerank_score, return top_k."""
+    sorted_c = sorted(
+        candidates,
+        key=lambda c: c.get("hybrid_score", c.get("score", 0.0)),
+        reverse=True,
+    )
+    for item in sorted_c:
+        item.setdefault("rerank_score", item.get("hybrid_score", item.get("score", 0.0)))
+    return sorted_c[:top_k]
+
+
+def rerank(query: str, candidates: List[Dict[str, Any]], top_k: int = 5) -> List[Dict[str, Any]]:
+    """
+    Rerank candidates. Priority:
+      1. Cohere API (if cohere_api_key set)
+      2. Cosine similarity via fastembed (no torch)
+      3. Passthrough — sort by existing score
+    """
+    if not candidates:
+        return []
+
+    # 1. Cohere
+    if settings.cohere_api_key:
+        try:
+            return _cohere_rerank(query, candidates, top_k)
+        except Exception as e:
+            logger.warning(f"[reranker] Cohere failed ({e!r}), falling back to cosine.")
+
+    # 2. Cosine similarity
+    try:
+        return _cosine_rerank(query, candidates, top_k)
+    except Exception as e:
+        logger.warning(f"[reranker] Cosine rerank failed ({e!r}), using passthrough.")
+
+    # 3. Passthrough
+    return _passthrough(candidates, top_k)
