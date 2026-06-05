@@ -10,26 +10,70 @@ A Retrieval-Augmented Generation (RAG) system for intelligent insurance claims a
 fraud_oracle.csv
       │
       ▼
-┌─────────────────────────────────┐
-│  ETL Pipeline (offline)         │
-│  Extract → Transform →          │
-│  Embed → Pinecone + BM25        │
-└────────────┬────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────────────────┐
-│  Query Pipeline (online)                            │
-│  Input Guardrails → Cache →                         │
-│  LangGraph Orchestrator:                            │
-│    retrieval_agent  (hybrid search + reranking)     │
-│    fraud_agent      (risk scoring + signals)        │
-│    policy_agent     (compliance checks)             │
-│    recommendation_agent (A2A escalation ≥ 0.75)    │
-│  → Output Guardrails → DeepEval → Response          │
-└─────────────────────────────────────────────────────┘
-             │
-             ▼
-     FastAPI  ←→  React Frontend
+┌──────────────────────────────────────────────────┐
+│  ETL Pipeline (offline)                          │
+│  extract.py  →  transform.py  →  load.py         │
+│  Embed (OpenAI text-embedding-3-small, 1536-dim) │
+│  → Pinecone (semantic)  +  BM25 (keyword index)  │
+└────────────────────┬─────────────────────────────┘
+                     │
+                     ▼
+              User Query (HTTP POST /api/v1/query)
+                     │
+                     ▼
+┌────────────────────────────────────────────────────────────────┐
+│  FastAPI Backend                                               │
+│                                                                │
+│  [1] Small-talk fast path                                      │
+│      regex match (hi / hello / thanks …) ──► canned reply      │
+│                                                                │
+│  [2] Input Guardrails  (input_guardrails.py)                   │
+│      ├─ length check (max 2000 chars)                          │
+│      ├─ prompt injection detection (regex)                     │
+│      ├─ harmful content blocking (weapons / drugs / violence)  │
+│      ├─ domain relevance check (insurance keywords)            │
+│      └─ PII anonymization via Presidio (optional)              │
+│      FAIL ──────────────────────────────────► HTTP 400         │
+│                                                                │
+│  [3] Query Cache  (query_cache.py)                             │
+│      ├─ Stage 1: MD5 exact match                               │
+│      └─ Stage 2: cosine similarity ≥ 0.92 (semantic dedup)     │
+│      HIT ───────────────────────────────► cached response      │
+│                                                                │
+│  [4] LangGraph Orchestrator  (90 s timeout)                    │
+│      │                                                         │
+│      ├─► retrieval_agent                                       │
+│      │     Pinecone 60% + BM25 40% → merge → rerank (cross encoder)  │
+│      │     optional contextual compression                     │
+│      │                                                         │
+│      ├─► fraud_agent                                           │
+│      │     LLM fraud analysis + rule-based fallback scoring    │
+│      │     risk_score ≥ 0.75 → escalate = True                 │
+│      │                                                         │
+│      ├─► policy_agent  (skipped when escalate = True)          │
+│      │     LLM policy compliance check                         │
+│      │                                                         │
+│      └─► recommendation_agent                                  │
+│            synthesises all agent outputs → final answer        │
+│                                                                │
+│  [5] Output Guardrails  (output_guardrails.py)                 │
+│      ├─ clamp risk_score to [0.0, 1.0]                         │
+│      ├─ remove hallucinated claim IDs                          │
+│      └─ reject empty answer → safe fallback                    │
+│                                                                │
+│  [6] DeepEval inline scoring                                   │
+│      Faithfulness · AnswerRelevancy · ContextualPrecision      │
+│                                                                │
+│  [7] Cache write  (MD5 key + embedding, TTL 600 s)             │
+│                                                                │
+│  LLM fallback chain:                                           │
+│  OpenAI → Groq → HuggingFace → fastembed → Pinecone (cloud vector db)           
+└────────────────────────────────────────────────────────────────┘
+                     │
+                     ▼
+              React Frontend  (Vite)
+              Dashboard · Investigate · Analytics
+              Data Ingestion · System Flow · Claim Detail
 ```
 
 ---
@@ -293,6 +337,8 @@ Small-talk fast path → regex check → canned reply (~1ms, bypasses LLM)
     ▼ Input Guardrails (backend/guardrails/input_guardrails.py)
 Max length 2000 chars
 Prompt injection pattern detection (regex)
+Harmful / unsafe content detection (weapons, drugs, violence, malware, self-harm)
+Domain relevance check (must relate to insurance-claims domain)
 Optional Presidio PII anonymization (disabled by default)
     │
     ▼ Query Cache (backend/cache/query_cache.py)
@@ -462,7 +508,7 @@ AI-Powered-Insurance-Claims-Intelligence-Assistant/
 | **Two-stage cache** | MD5 exact match first; cosine similarity ≥ 0.92 as semantic near-duplicate fallback |
 | **Query timeout** | 90-second hard ceiling per `/query` request via `asyncio.wait_for` |
 | **Contextual compression** | Optional LLM-based chunk trimming (~40% token reduction), disabled by default |
-| **Guardrails** | Input: regex injection detection + optional Presidio PII; Output: risk bounds + hallucination check |
+| **Guardrails** | Input: injection detection + harmful content blocking + domain relevance check + optional Presidio PII; Output: risk bounds + hallucination check + non-empty answer |
 | **Inline evaluation** | DeepEval Faithfulness, AnswerRelevancy, Hallucination scores returned in every response |
 | **Observability** | LangSmith full trace (optional) + per-node timing logs |
 | **Small-talk fast path** | Regex pattern matching for greetings — bypasses LLM (~1ms response) |

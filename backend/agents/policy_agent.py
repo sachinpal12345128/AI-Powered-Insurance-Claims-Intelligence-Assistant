@@ -10,7 +10,7 @@ POLICY_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are an insurance policy compliance expert.
 Review the claim details and check for policy violations.
 Return a JSON object with:
-- violations: list of objects with {rule, severity (high/medium/low), description}
+- violations: list of objects with {{rule, severity (high/medium/low), description}}
 - compliance: "compliant" or "violations_found"
 - summary: one sentence
 

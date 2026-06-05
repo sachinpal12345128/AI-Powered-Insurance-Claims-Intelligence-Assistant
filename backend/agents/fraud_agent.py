@@ -7,26 +7,34 @@ logger = logging.getLogger(__name__)
 
 FRAUD_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are an insurance fraud analysis expert.
-Analyze the retrieved claims and identify fraud signals.
+The user is describing a specific insurance claim. Analyze the characteristics mentioned in the claim description (the query) and assess the fraud risk for THAT claim.
+Use the retrieved similar historical claims only as reference context for comparison — do NOT base the risk score on them.
+
 Return a JSON object with:
-- fraud_signals: list of objects with {signal, severity (high/medium/low), description}
-- risk_score: float 0.0-1.0 (probability of fraud)
+- fraud_signals: list of objects with {{signal, severity (high/medium/low), description}}
+- risk_score: float 0.0-1.0 (probability of fraud for the described claim)
 - fraud_cluster: short label for the detected fraud pattern (or "none")
 - escalate: true if risk_score >= 0.75, false otherwise
 - summary: one sentence explanation
 
-Known fraud signals to look for:
-- No police report filed
-- External agent involvement
-- Multiple supplements (3+)
-- Address change near claim date
-- No witness present
-- New policy (< 30 days before accident)
-- Third-party fault with no police report
-- High vehicle price with missing documentation
+Known fraud signals to look for in the described claim:
+- No police report filed (+high risk)
+- External agent involvement (+high risk)
+- Multiple supplements (3+) (+medium risk)
+- Address change near claim date (+medium risk)
+- No witness present (+medium risk)
+- New policy (< 30 days before accident) (+high risk)
+- Third-party fault with no police report (+high risk)
+- High vehicle price with missing documentation (+medium risk)
+- Claim filed same day as accident (+low risk, slightly suspicious)
+
+Protective factors that LOWER risk:
+- Police report available / filed
+- Witness statement provided
+- Supporting documentation complete
 
 Respond ONLY with valid JSON."""),
-    ("human", "Query: {query}\n\nRetrieved claims context:\n{context}"),
+    ("human", "Claim description (analyze this for fraud risk): {query}\n\nSimilar historical claims for reference:\n{context}"),
 ])
 
 SIGNAL_WEIGHTS = {
@@ -36,19 +44,45 @@ SIGNAL_WEIGHTS = {
 }
 
 
-def _rule_based_risk(claims: list[dict]) -> tuple[float, list[dict]]:
-    """Fast rule-based scoring as baseline."""
-    if not claims:
-        return 0.0, []
+def _rule_based_risk(claims: list[dict], query: str = "") -> tuple[float, list[dict]]:
+    """Rule-based scoring: parse query text first, fall back to retrieved claim metadata."""
     signals = []
     score = 0.0
-    meta = claims[0].get("metadata", {})
-    if meta.get("police_report_filed") == "No":
-        score += 0.25; signals.append({"signal": "No police report", "severity": "high", "description": "Claim filed without police report"})
-    if meta.get("agent_type") == "External":
-        score += 0.20; signals.append({"signal": "External agent", "severity": "high", "description": "External agent involved"})
-    if meta.get("witness_present") == "No":
-        score += 0.12; signals.append({"signal": "No witness", "severity": "medium", "description": "No witness present"})
+    q = query.lower()
+
+    # Parse explicit protective / risk factors from the query text
+    has_police = any(p in q for p in ["police report available", "police report filed", "police report present", "police report provided"])
+    no_police = any(p in q for p in ["no police report", "without police report", "police report not filed"])
+    has_witness = any(p in q for p in ["witness statement", "witness present", "witness provided", "witness available"])
+    no_witness = any(p in q for p in ["no witness", "without witness", "witness absent"])
+
+    # Police report check — prefer query text over metadata
+    if no_police:
+        score += 0.25
+        signals.append({"signal": "No police report", "severity": "high", "description": "Claim filed without police report"})
+    elif not has_police and claims:
+        meta = claims[0].get("metadata", {})
+        if meta.get("police_report_filed") == "No":
+            score += 0.25
+            signals.append({"signal": "No police report", "severity": "high", "description": "Claim filed without police report"})
+
+    # Witness check — prefer query text over metadata
+    if no_witness:
+        score += 0.12
+        signals.append({"signal": "No witness", "severity": "medium", "description": "No witness present"})
+    elif not has_witness and claims:
+        meta = claims[0].get("metadata", {})
+        if meta.get("witness_present") == "No":
+            score += 0.12
+            signals.append({"signal": "No witness", "severity": "medium", "description": "No witness present"})
+
+    # External agent — metadata only
+    if claims:
+        meta = claims[0].get("metadata", {})
+        if meta.get("agent_type") == "External":
+            score += 0.20
+            signals.append({"signal": "External agent", "severity": "high", "description": "External agent involved"})
+
     return min(score, 1.0), signals
 
 
@@ -83,7 +117,7 @@ def fraud_agent(state: ClaimsState) -> ClaimsState:
 
     except Exception as e:
         logger.warning(f"[fraud_agent] LLM failed ({e}). Using rule-based fallback.")
-        risk_score, fraud_signals = _rule_based_risk(claims)
+        risk_score, fraud_signals = _rule_based_risk(claims, query)
         fraud_cluster = "rule-based"
         escalate = risk_score >= 0.75
         model_used = "rule-based"
