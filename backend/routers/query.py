@@ -189,6 +189,36 @@ def _get_dataset_stats() -> dict | None:
                     "fraud_rate_pct": round(both_fraud / max(len(both), 1) * 100, 1),
                 },
             },
+            "driver_rating": (lambda dr_col="driverrating": {
+                "scale": "1 (worst) to 4 (best)",
+                "average_all_claims":       round(float(df[dr_col].mean()), 2)       if dr_col in df.columns else None,
+                "average_fraud_claims":     round(float(fraud_df[dr_col].mean()), 2) if dr_col in df.columns else None,
+                "average_non_fraud_claims": round(float(df[df[fraud_col].astype(int)==0][dr_col].mean()), 2)
+                                            if dr_col in df.columns and fraud_col else None,
+                "distribution_in_fraud_claims": {
+                    str(k): int(v)
+                    for k, v in fraud_df[dr_col].value_counts().sort_index().items()
+                } if dr_col in df.columns else {},
+                "distribution_all_claims": {
+                    str(k): int(v)
+                    for k, v in df[dr_col].value_counts().sort_index().items()
+                } if dr_col in df.columns else {},
+                "note": "Driver rating shows almost no difference between fraud and non-fraud claims — it is NOT a strong fraud predictor.",
+            })(),
+            "claim_amounts": (lambda amt_col=next((c for c in df.columns if "amount" in c or "price" in c), None): {
+                "vehicle_price_categories": df[amt_col].value_counts().to_dict()
+                if amt_col else {},
+            })(),
+            "demographics": {
+                "age_groups_in_fraud": fraud_df["age"].describe().round(1).to_dict()
+                                       if "age" in fraud_df.columns else {},
+                "fault_distribution_all": df["fault"].value_counts().to_dict()
+                                          if "fault" in df.columns else {},
+                "fault_distribution_fraud": fraud_df["fault"].value_counts().to_dict()
+                                            if "fault" in fraud_df.columns else {},
+                "vehicle_category_fraud": fraud_df["vehiclecategory"].value_counts().to_dict()
+                                          if "vehiclecategory" in fraud_df.columns else {},
+            },
         }
         _dataset_stats_cache = stats
         return stats
