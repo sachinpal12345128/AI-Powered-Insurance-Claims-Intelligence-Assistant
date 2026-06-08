@@ -55,198 +55,8 @@ def _fmt_breakdown(grp_df, label_col: str, fraud_col: str) -> str:
     return "\n".join(lines)
 
 
-def _handle_analytics_query(q: str) -> dict | None:
-    """Answer count/rate/regional aggregate queries directly from the full CSV dataset."""
-    try:
-        import pandas as pd
-    except ImportError:
-        return None
-
-    if not _CSV_PATH.exists():
-        return None
-
-    df = pd.read_csv(_CSV_PATH)
-    df.columns = [c.lower().strip() for c in df.columns]
-    total = len(df)
-
-    fraud_col = next((c for c in df.columns if "fraud" in c), None)
-    area_col  = next((c for c in df.columns if "region" in c or "area" in c), None)
-    policy_col = next((c for c in df.columns if "policy" in c and "type" in c), None)
-
-    fraud_count = int(df[fraud_col].astype(int).sum()) if fraud_col else 0
-    overall_rate = round(fraud_count / max(total, 1) * 100, 1)
-
-    q_lower = q.lower()
-    answer_parts = []
-    recommendations = []
-
-    # ── Helper: compute grouped stats ────────────────────────────────────
-    def _group_stats(col):
-        g = df.groupby(col).agg(
-            total=(fraud_col, "count"),
-            fraud=(fraud_col, lambda x: int(x.astype(int).sum())),
-        ).reset_index()
-        g["rate"] = (g["fraud"] / g["total"] * 100).round(1)
-        return g
-
-    # ── Detect rate / statistical intent ─────────────────────────────────
-    is_rate_query = bool(re.search(
-        r"\b(rate|percentage|ratio|statistic|level|breakdown|distribution)\b",
-        q_lower,
-    ))
-
-    # ── Region / area filter ──────────────────────────────────────────────
-    requested_region = None
-    if area_col:
-        available_areas = [v.lower() for v in df[area_col].dropna().unique()]
-        # Check if the query mentions any known area value (e.g. "urban", "rural")
-        for area in available_areas:
-            if area in q_lower:
-                requested_region = area
-                break
-
-        # Check if the query mentions a geographic region NOT in the data
-        geo_regions = ["northeast", "northwest", "southeast", "southwest",
-                       "north", "south", "east", "west", "central", "midwest"]
-        geo_mentioned = next((r for r in geo_regions if r in q_lower), None)
-
-    # ── Policy type filter ────────────────────────────────────────────────
-    requested_policy = None
-    if policy_col:
-        available_policies = [v.lower() for v in df[policy_col].dropna().unique()]
-        for pol in available_policies:
-            if any(word in q_lower for word in pol.split()):
-                requested_policy = pol
-                break
-
-    # ── Build the answer ──────────────────────────────────────────────────
-
-    # CASE 1: Region/area rate query with a known area (Urban / Rural)
-    if is_rate_query and requested_region and area_col and fraud_col:
-        sub = df[df[area_col].str.lower() == requested_region]
-        sub_total = len(sub)
-        sub_fraud = int(sub[fraud_col].astype(int).sum())
-        sub_rate = round(sub_fraud / max(sub_total, 1) * 100, 1)
-        answer_parts.append(
-            f"The fraud rate in {requested_region.capitalize()} areas is "
-            f"{sub_rate}% ({sub_fraud} fraudulent out of {sub_total} claims)."
-        )
-        recommendations.append(f"Drill into {requested_region.capitalize()} claims on the Analytics page.")
-
-    # CASE 2: Geographic region mentioned but NOT in data (e.g. "Northeast")
-    elif is_rate_query and geo_mentioned and area_col and fraud_col:
-        answer_parts.append(
-            f"The dataset does not contain a '{geo_mentioned.capitalize()}' region. "
-            f"Claims are categorised by Accident Area: Urban and Rural."
-        )
-        # Provide the full breakdown anyway
-        g = _group_stats(area_col)
-        answer_parts.append(
-            f"\nOverall fraud rate across all {total} claims: {overall_rate}%.\n"
-            f"Breakdown by Accident Area:\n" + _fmt_breakdown(g, area_col, fraud_col)
-        )
-        recommendations.append("The Analytics page shows fraud stats by Accident Area and Policy Type.")
-
-    # CASE 3: Policy type rate query
-    elif is_rate_query and requested_policy and policy_col and fraud_col:
-        sub = df[df[policy_col].str.lower() == requested_policy]
-        sub_total = len(sub)
-        sub_fraud = int(sub[fraud_col].astype(int).sum())
-        sub_rate = round(sub_fraud / max(sub_total, 1) * 100, 1)
-        answer_parts.append(
-            f"The fraud rate for '{requested_policy.title()}' policies is "
-            f"{sub_rate}% ({sub_fraud} fraudulent out of {sub_total} claims)."
-        )
-
-    # CASE 4: General fraud rate query (no specific filter)
-    elif is_rate_query and "fraud" in q_lower and fraud_col:
-        answer_parts.append(
-            f"Overall fraud rate: {overall_rate}% "
-            f"({fraud_count} fraudulent claims out of {total} total)."
-        )
-        if area_col:
-            g = _group_stats(area_col)
-            answer_parts.append(
-                f"\nBreakdown by Accident Area:\n" + _fmt_breakdown(g, area_col, fraud_col)
-            )
-        if policy_col:
-            g2 = _group_stats(policy_col)
-            answer_parts.append(
-                f"\nBreakdown by Policy Type:\n" + _fmt_breakdown(g2, policy_col, fraud_col)
-            )
-        recommendations.append("Visit the Analytics page for interactive charts.")
-
-    # CASE 5: Date-range count query ("last N months")
-    else:
-        use_claimed = any(w in q_lower for w in ["filed", "submitted", "claimed", "reported"])
-        date_col = "monthclaimed" if (use_claimed and "monthclaimed" in df.columns) else "month"
-        year_col = "year" if "year" in df.columns else None
-
-        month_match = re.search(r"last\s+(\d+)\s*months?", q_lower)
-        named_month = next((m for m in _MONTH_MAP if re.search(rf"\b{m}\b", q_lower)), None)
-        filtered_count = None
-        sub = df  # default
-
-        if month_match and year_col:
-            n = int(month_match.group(1))
-            df["_month_num"] = df[date_col].str[:3].str.lower().map(_MONTH_MAP).fillna(0).astype(int)
-            df["_date_int"] = df[year_col].astype(int) * 12 + df["_month_num"]
-            max_d = df["_date_int"].max()
-            sub = df[df["_date_int"] > max_d - n]
-            filtered_count = len(sub)
-            max_row = df[df["_date_int"] == max_d].iloc[0]
-            max_label = f"{max_row[date_col]} {int(max_row[year_col])}"
-            answer_parts.append(
-                f"{filtered_count} claims were {'filed' if use_claimed else 'reported'} "
-                f"in the last {n} month{'s' if n > 1 else ''} of available data (ending {max_label})."
-            )
-        elif named_month:
-            m_num = _MONTH_MAP[named_month]
-            df["_month_num"] = df[date_col].str[:3].str.lower().map(_MONTH_MAP).fillna(0).astype(int)
-            sub = df[df["_month_num"] == m_num]
-            filtered_count = len(sub)
-            answer_parts.append(
-                f"{filtered_count} claims were {'filed' if use_claimed else 'reported'} "
-                f"in {named_month.capitalize()} across all available years."
-            )
-
-        if "fraud" in q_lower and filtered_count is not None and fraud_col:
-            sub_fraud = sub[sub[fraud_col].astype(int) == 1]
-            answer_parts.append(
-                f"Of those, {len(sub_fraud)} "
-                f"({round(len(sub_fraud)/max(filtered_count,1)*100,1)}%) "
-                f"were flagged as potentially fraudulent."
-            )
-        elif "fraud" in q_lower and filtered_count is None and fraud_col:
-            answer_parts.append(
-                f"Out of {total} total claims, {fraud_count} "
-                f"({overall_rate}%) are flagged as potentially fraudulent."
-            )
-
-        # Final fallback
-        if not answer_parts:
-            answer_parts.append(
-                f"The dataset contains {total} total insurance claims, "
-                f"of which {fraud_count} ({overall_rate}%) are flagged as potentially fraudulent."
-            )
-            if area_col:
-                g = _group_stats(area_col)
-                answer_parts.append(
-                    f"\nBreakdown by Accident Area:\n" + _fmt_breakdown(g, area_col, fraud_col)
-                )
-
-    answer = "\n".join(answer_parts)
-    answer += (
-        "\n\nNote: data spans historical records (1994–1996). "
-        "Visit the Analytics page for interactive breakdowns."
-    )
-
-    if not recommendations:
-        recommendations = [
-            "Use the Analytics page for interactive charts by region and policy type.",
-            "Use the Investigate page to analyse specific claim fraud signals.",
-        ]
-
+def _safe_analytics_response(q: str, answer: str) -> dict:
+    """Return a well-formed analytics response with a custom answer."""
     return {
         "query": q,
         "answer": answer,
@@ -255,7 +65,10 @@ def _handle_analytics_query(q: str) -> dict | None:
         "fraud_cluster": "none",
         "policy_violations": [],
         "policy_compliance": "compliant",
-        "recommendations": recommendations,
+        "recommendations": [
+            "Use the Analytics page for interactive charts by region and policy type.",
+            "Use the Investigate page to analyse specific claim fraud signals.",
+        ],
         "matched_claims": [],
         "matched_claim_ids": [],
         "model_used": "analytics-direct",
@@ -265,6 +78,260 @@ def _handle_analytics_query(q: str) -> dict | None:
         "eval_scores": {},
         "error": None,
     }
+
+
+def _handle_analytics_query(q: str) -> dict:
+    """Answer count/rate/regional aggregate queries directly from the full CSV dataset."""
+    _log = logging.getLogger(__name__)
+
+    try:
+        import pandas as pd
+    except ImportError:
+        _log.warning(
+            "[analytics] pandas not installed — cannot serve analytics query. "
+            "Run: pip install pandas"
+        )
+        return _safe_analytics_response(
+            q,
+            "Analytics queries require pandas, which is not installed on this server. "
+            "Please install it with: pip install pandas",
+        )
+
+    if not _CSV_PATH.exists():
+        _log.warning(
+            "[analytics] CSV not found at %s — aggregate fast path skipped. "
+            "Run the ETL pipeline or check data/source_data/fraud_oracle.csv.",
+            _CSV_PATH,
+        )
+        return _safe_analytics_response(
+            q,
+            f"The source data file was not found at the expected path "
+            f"({_CSV_PATH}). Please run the ETL pipeline or upload the CSV "
+            f"via the Data Ingestion page before querying analytics.",
+        )
+
+    try:
+        df = pd.read_csv(_CSV_PATH)
+        df.columns = [c.lower().strip() for c in df.columns]
+        total = len(df)
+
+        fraud_col = next((c for c in df.columns if "fraud" in c), None)
+        area_col  = next((c for c in df.columns if "region" in c or "area" in c), None)
+        policy_col = next((c for c in df.columns if "policy" in c and "type" in c), None)
+
+        fraud_count = int(df[fraud_col].astype(int).sum()) if fraud_col else 0
+        overall_rate = round(fraud_count / max(total, 1) * 100, 1)
+
+        q_lower = q.lower()
+        answer_parts = []
+        recommendations = []
+
+        # ── Helper: compute grouped stats ─────────────────────────────────
+        def _group_stats(col):
+            g = df.groupby(col).agg(
+                total=(fraud_col, "count"),
+                fraud=(fraud_col, lambda x: int(x.astype(int).sum())),
+            ).reset_index()
+            g["rate"] = (g["fraud"] / g["total"] * 100).round(1)
+            return g
+
+        # ── Detect rate / statistical intent ──────────────────────────────
+        is_rate_query = bool(re.search(
+            r"\b(rate|percentage|ratio|statistic|level|breakdown|distribution)\b",
+            q_lower,
+        ))
+
+        # ── Region / area filter ───────────────────────────────────────────
+        requested_region = None
+        geo_mentioned = None
+        if area_col:
+            available_areas = [v.lower() for v in df[area_col].dropna().unique()]
+            for area in available_areas:
+                if area in q_lower:
+                    requested_region = area
+                    break
+            geo_regions = ["northeast", "northwest", "southeast", "southwest",
+                           "north", "south", "east", "west", "central", "midwest"]
+            geo_mentioned = next((r for r in geo_regions if r in q_lower), None)
+
+        # ── Policy type filter ─────────────────────────────────────────────
+        requested_policy = None
+        if policy_col:
+            available_policies = [v.lower() for v in df[policy_col].dropna().unique()]
+            for pol in available_policies:
+                if any(word in q_lower for word in pol.split()):
+                    requested_policy = pol
+                    break
+
+        # ── Build the answer ───────────────────────────────────────────────
+
+        # CASE 1: Known area rate query (Urban / Rural)
+        if is_rate_query and requested_region and area_col and fraud_col:
+            sub = df[df[area_col].str.lower() == requested_region]
+            sub_total = len(sub)
+            sub_fraud = int(sub[fraud_col].astype(int).sum())
+            sub_rate = round(sub_fraud / max(sub_total, 1) * 100, 1)
+            answer_parts.append(
+                f"The fraud rate in {requested_region.capitalize()} areas is "
+                f"{sub_rate}% ({sub_fraud} fraudulent out of {sub_total} claims)."
+            )
+            recommendations.append(
+                f"Drill into {requested_region.capitalize()} claims on the Analytics page."
+            )
+
+        # CASE 2: Geographic region NOT in data (e.g. "Northeast")
+        elif is_rate_query and geo_mentioned and area_col and fraud_col:
+            answer_parts.append(
+                f"The dataset does not contain a '{geo_mentioned.capitalize()}' region. "
+                f"Claims are categorised by Accident Area: Urban and Rural."
+            )
+            g = _group_stats(area_col)
+            answer_parts.append(
+                f"\nOverall fraud rate across all {total} claims: {overall_rate}%.\n"
+                f"Breakdown by Accident Area:\n" + _fmt_breakdown(g, area_col, fraud_col)
+            )
+            recommendations.append(
+                "The Analytics page shows fraud stats by Accident Area and Policy Type."
+            )
+
+        # CASE 3: Policy type rate query
+        elif is_rate_query and requested_policy and policy_col and fraud_col:
+            sub = df[df[policy_col].str.lower() == requested_policy]
+            sub_total = len(sub)
+            sub_fraud = int(sub[fraud_col].astype(int).sum())
+            sub_rate = round(sub_fraud / max(sub_total, 1) * 100, 1)
+            answer_parts.append(
+                f"The fraud rate for '{requested_policy.title()}' policies is "
+                f"{sub_rate}% ({sub_fraud} fraudulent out of {sub_total} claims)."
+            )
+
+        # CASE 4: General fraud rate query
+        elif is_rate_query and "fraud" in q_lower and fraud_col:
+            answer_parts.append(
+                f"Overall fraud rate: {overall_rate}% "
+                f"({fraud_count} fraudulent claims out of {total} total)."
+            )
+            if area_col:
+                g = _group_stats(area_col)
+                answer_parts.append(
+                    f"\nBreakdown by Accident Area:\n" + _fmt_breakdown(g, area_col, fraud_col)
+                )
+            if policy_col:
+                g2 = _group_stats(policy_col)
+                answer_parts.append(
+                    f"\nBreakdown by Policy Type:\n" + _fmt_breakdown(g2, policy_col, fraud_col)
+                )
+            recommendations.append("Visit the Analytics page for interactive charts.")
+
+        # CASE 5: Date-range count query ("last N months", "in January", etc.)
+        else:
+            use_claimed = any(w in q_lower for w in ["filed", "submitted", "claimed", "reported"])
+            date_col = "monthclaimed" if (use_claimed and "monthclaimed" in df.columns) else "month"
+            year_col = "year" if "year" in df.columns else None
+
+            month_match = re.search(r"last\s+(\d+)\s*months?", q_lower)
+            named_month = next((m for m in _MONTH_MAP if re.search(rf"\b{m}\b", q_lower)), None)
+            filtered_count = None
+            sub = df
+
+            if month_match and year_col:
+                n = int(month_match.group(1))
+                df["_month_num"] = (
+                    df[date_col].str[:3].str.lower().map(_MONTH_MAP).fillna(0).astype(int)
+                )
+                df["_date_int"] = df[year_col].astype(int) * 12 + df["_month_num"]
+                max_d = df["_date_int"].max()
+                sub = df[df["_date_int"] > max_d - n]
+                filtered_count = len(sub)
+                max_row = df[df["_date_int"] == max_d].iloc[0]
+                max_label = f"{max_row[date_col]} {int(max_row[year_col])}"
+                answer_parts.append(
+                    f"{filtered_count} claims were "
+                    f"{'filed' if use_claimed else 'reported'} "
+                    f"in the last {n} month{'s' if n > 1 else ''} of available data "
+                    f"(ending {max_label})."
+                )
+            elif named_month:
+                m_num = _MONTH_MAP[named_month]
+                df["_month_num"] = (
+                    df[date_col].str[:3].str.lower().map(_MONTH_MAP).fillna(0).astype(int)
+                )
+                sub = df[df["_month_num"] == m_num]
+                filtered_count = len(sub)
+                answer_parts.append(
+                    f"{filtered_count} claims were "
+                    f"{'filed' if use_claimed else 'reported'} "
+                    f"in {named_month.capitalize()} across all available years."
+                )
+
+            if "fraud" in q_lower and filtered_count is not None and fraud_col:
+                sub_fraud = sub[sub[fraud_col].astype(int) == 1]
+                answer_parts.append(
+                    f"Of those, {len(sub_fraud)} "
+                    f"({round(len(sub_fraud)/max(filtered_count,1)*100,1)}%) "
+                    f"were flagged as potentially fraudulent."
+                )
+            elif "fraud" in q_lower and filtered_count is None and fraud_col:
+                answer_parts.append(
+                    f"Out of {total} total claims, {fraud_count} "
+                    f"({overall_rate}%) are flagged as potentially fraudulent."
+                )
+
+            if not answer_parts:
+                answer_parts.append(
+                    f"The dataset contains {total} total insurance claims, "
+                    f"of which {fraud_count} ({overall_rate}%) are flagged as "
+                    f"potentially fraudulent."
+                )
+                if area_col:
+                    g = _group_stats(area_col)
+                    answer_parts.append(
+                        f"\nBreakdown by Accident Area:\n"
+                        + _fmt_breakdown(g, area_col, fraud_col)
+                    )
+
+        answer = "\n".join(answer_parts)
+        answer += (
+            "\n\nNote: data spans historical records (1994–1996). "
+            "Visit the Analytics page for interactive breakdowns."
+        )
+
+        if not recommendations:
+            recommendations = [
+                "Use the Analytics page for interactive charts by region and policy type.",
+                "Use the Investigate page to analyse specific claim fraud signals.",
+            ]
+
+        return {
+            "query": q,
+            "answer": answer,
+            "risk_score": None,
+            "fraud_signals": [],
+            "fraud_cluster": "none",
+            "policy_violations": [],
+            "policy_compliance": "compliant",
+            "recommendations": recommendations,
+            "matched_claims": [],
+            "matched_claim_ids": [],
+            "model_used": "analytics-direct",
+            "escalated": False,
+            "cache_hit": False,
+            "guardrail_violations": [],
+            "eval_scores": {},
+            "error": None,
+        }
+
+    except Exception as exc:
+        _log.warning(
+            "[analytics] Unexpected error processing analytics query (%s): %s — "
+            "falling back to safe response.",
+            type(exc).__name__, exc,
+        )
+        return _safe_analytics_response(
+            q,
+            "An error occurred while computing analytics from the dataset. "
+            "Please check the backend logs or use the Analytics page directly.",
+        )
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

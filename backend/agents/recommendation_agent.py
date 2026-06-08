@@ -9,8 +9,14 @@ REC_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are a senior insurance fraud investigator.
 Based on the analysis results below, generate a clear, actionable investigation report.
 
+Follow this process when producing recommendations:
+1. Re-evaluate the source data to extract and verify the 5-6 most critical facts for maximum precision.
+2. Refine the syntax and phrasing of each point to ensure strict factual accuracy and eliminate ambiguity.
+3. Structure the final output into a clean, numbered or bulleted list containing exactly 5 to 6 distinct items.
+4. Cross-reference the compiled points against verified reference materials to guarantee absolute correctness.
+
 Your response must be a JSON object with:
-- recommendations: list of 3-5 specific investigation actions (strings)
+- recommendations: list of exactly 5-6 specific investigation actions (strings), each factually precise and unambiguous
 - answer: 2-3 sentence summary for the claims analyst
 - priority: "immediate" | "high" | "standard"
 
@@ -27,11 +33,12 @@ Escalated: {escalate}"""),
 ])
 
 FALLBACK_RECS = [
-    "Request police report if not already filed",
-    "Verify witness statements independently",
-    "Cross-check vehicle VIN history",
-    "Review supplement documentation",
-    "Confirm agent credentials and history",
+    "Re-evaluate the source data to extract and verify the 5-6 most critical facts for maximum precision.",
+    "Refine the syntax and phrasing of each point to ensure strict factual accuracy and eliminate ambiguity.",
+    "Structure the final output into a clean, numbered or bulleted list containing exactly 5 to 6 distinct items.",
+    "Cross-reference the compiled points against verified reference materials to guarantee absolute correctness.",
+    "Verify all claim identifiers, dates, and policy numbers against primary source documents before escalation.",
+    "Document findings with supporting evidence references and submit for senior investigator review.",
 ]
 
 

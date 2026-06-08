@@ -74,9 +74,31 @@ export default function Investigate() {
               {result.cache_hit && <span className="badge badge-green" style={{ marginLeft: 8 }}><Zap size={10} /> cache hit</span>}
             </div>
 
-            <div style={{ background: 'var(--blue-bg)', borderLeft: '3px solid var(--blue)', borderRadius: 8, padding: '12px 14px', marginBottom: 14, fontSize: 12, lineHeight: 1.6 }}>
-              <div style={{ fontWeight: 600, marginBottom: 4, color: 'var(--blue-text)' }}>AI Summary</div>
-              {result.answer}
+            <div style={{ background: 'var(--blue-bg)', borderLeft: '3px solid var(--blue)', borderRadius: 8, padding: '14px 16px', marginBottom: 14, fontSize: 12, lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8, color: 'var(--blue-text)', fontSize: 13 }}>AI Summary</div>
+
+              {/* Brief answer paragraph */}
+              {result.answer && (
+                <div style={{ marginBottom: 10, color: 'var(--text1)', lineHeight: 1.65 }}>
+                  {result.answer}
+                </div>
+              )}
+
+              {/* 5-6 bullet point recommendations */}
+              {result.recommendations?.length > 0 && (
+                <>
+                  <div style={{ fontWeight: 600, fontSize: 11, color: 'var(--blue-text)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Investigation Actions
+                  </div>
+                  <ol style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {result.recommendations.slice(0, 6).map((rec, i) => (
+                      <li key={i} style={{ fontSize: 12, color: 'var(--text1)', lineHeight: 1.55, paddingLeft: 4 }}>
+                        {rec}
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              )}
             </div>
 
             {result.matched_claims?.map((claim, i) => {
