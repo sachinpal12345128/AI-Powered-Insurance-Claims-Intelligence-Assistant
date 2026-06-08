@@ -84,12 +84,13 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    # Only watch source code dirs. Without reload_dirs, every Chroma/BM25
-    # write under ./data triggers a restart and breaks in-flight requests.
+    # reload=False: single-process mode — no watcher subprocess.
+    # This guarantees every `python -m backend.main` starts completely fresh
+    # with the latest code. Previously reload=True caused stale subprocesses
+    # to accumulate on Windows and serve old code after restarts.
     uvicorn.run(
         "backend.main:app",
         host=settings.app_host,
         port=settings.app_port,
-        reload=True,
-        reload_dirs=["backend", "etl"],
+        reload=False,
     )
